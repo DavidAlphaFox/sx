@@ -15583,6 +15583,8 @@ fi
 
 subdirs="$subdirs curl-src"
 
+    CURL_LIBS=
+    test -n "`sh curl-src/curl-config --libs | grep -lrt`" && CURL_LIBS="-lrt"
 fi
 
 if test "$with_system_libs" = "yes"; then

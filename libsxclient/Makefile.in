@@ -500,7 +500,7 @@ src_libsxclient_la_SOURCES = include/sx.h include/default.h \
 	src/sxreport.c src/version.c src/vcrypto.h src/vcryptocurl.h \
 	src/crypt_blowfish.c src/crypt_blowfish.h $(am__append_3) \
 	$(am__append_4) $(am__append_5)
-src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
+src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@ @CURL_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsxclient_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSXCLIENT_VERSION)
 src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \

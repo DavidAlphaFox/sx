@@ -72,7 +72,7 @@ src_libsxclient_la_SOURCES += \
 	src/cert.h
 endif
 
-src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
+src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@ @CURL_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsxclient_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSXCLIENT_VERSION)
 src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \

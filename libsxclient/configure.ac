@@ -198,6 +198,8 @@ if test "x$build_curl" = "xyes"; then
     LIBCURL="curl-src/lib/libcurl.la $link_idn -lz"
     LIBCURL_CPPFLAGS="-I $srcdir/curl-src/include -I curl-src/include/curl"
     AC_CONFIG_SUBDIRS([curl-src])
+    CURL_LIBS=
+    test -n "`sh curl-src/curl-config --libs | grep -lrt`" && CURL_LIBS="-lrt"
 fi
 
 if test "$with_system_libs" = "yes"; then
