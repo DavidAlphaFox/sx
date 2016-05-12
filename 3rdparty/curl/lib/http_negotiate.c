@@ -9,7 +9,7 @@
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at http://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.haxx.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -62,8 +62,10 @@ CURLcode Curl_input_negotiate(struct connectdata *conn, bool proxy,
 
   if(!neg_ctx->server_name) {
     /* Generate our SPN */
-    char *spn = Curl_sasl_build_gssapi_spn("HTTP", proxy ? conn->proxy.name :
-                                                           conn->host.name);
+    char *spn = Curl_sasl_build_gssapi_spn(
+      proxy ? data->set.str[STRING_PROXY_SERVICE_NAME] :
+      data->set.str[STRING_SERVICE_NAME],
+      proxy ? conn->proxy.name : conn->host.name);
     if(!spn)
       return CURLE_OUT_OF_MEMORY;
 

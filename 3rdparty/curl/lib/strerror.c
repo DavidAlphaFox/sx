@@ -9,7 +9,7 @@
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at http://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.haxx.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -37,6 +37,10 @@
 
 #ifdef USE_LIBIDN
 #include <idna.h>
+#endif
+
+#ifdef USE_WINDOWS_SSPI
+#include "curl_sspi.h"
 #endif
 
 #include "strerror.h"
@@ -824,6 +828,9 @@ const char *Curl_sspi_strerror (struct connectdata *conn, int err)
     case SEC_E_OK:
       txt = "No error";
       break;
+    case CRYPT_E_REVOKED:
+      txt = "CRYPT_E_REVOKED";
+      break;
     case SEC_E_ALGORITHM_MISMATCH:
       txt = "SEC_E_ALGORITHM_MISMATCH";
       break;
@@ -1067,6 +1074,12 @@ const char *Curl_sspi_strerror (struct connectdata *conn, int err)
 
   if(err == SEC_E_OK)
     strncpy(outbuf, txt, outmax);
+  else if(err == SEC_E_ILLEGAL_MESSAGE)
+    snprintf(outbuf, outmax,
+             "SEC_E_ILLEGAL_MESSAGE (0x%04X%04X) - This error usually occurs "
+             "when a fatal SSL/TLS alert is received (e.g. handshake failed). "
+             "More detail may be available in the Windows System event log.",
+             (err >> 16) & 0xffff, err & 0xffff);
   else {
     str = txtbuf;
     snprintf(txtbuf, sizeof(txtbuf), "%s (0x%04X%04X)",

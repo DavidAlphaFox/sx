@@ -9,7 +9,7 @@
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at http://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.haxx.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -218,7 +218,6 @@ CHUNKcode Curl_httpchunk_read(struct connectdata *conn,
                                           (ssize_t)piece);
         break;
 
-      case COMPRESS:
       default:
         failf (conn->data,
                "Unrecognized content encoding type. "

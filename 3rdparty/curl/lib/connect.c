@@ -5,11 +5,11 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2016, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at http://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.haxx.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -619,7 +619,7 @@ static bool getaddressinfo(struct sockaddr* sa, char* addr,
 
   switch (sa->sa_family) {
     case AF_INET:
-      si = (struct sockaddr_in*) sa;
+      si = (struct sockaddr_in*)(void*) sa;
       if(Curl_inet_ntop(sa->sa_family, &si->sin_addr,
                         addr, MAX_IPADR_LEN)) {
         us_port = ntohs(si->sin_port);
@@ -629,7 +629,7 @@ static bool getaddressinfo(struct sockaddr* sa, char* addr,
       break;
 #ifdef ENABLE_IPV6
     case AF_INET6:
-      si6 = (struct sockaddr_in6*)sa;
+      si6 = (struct sockaddr_in6*)(void*) sa;
       if(Curl_inet_ntop(sa->sa_family, &si6->sin6_addr,
                         addr, MAX_IPADR_LEN)) {
         us_port = ntohs(si6->sin6_port);
@@ -857,12 +857,13 @@ CURLcode Curl_is_connected(struct connectdata *conn,
   return result;
 }
 
-static void tcpnodelay(struct connectdata *conn,
-                       curl_socket_t sockfd)
+void Curl_tcpnodelay(struct connectdata *conn, curl_socket_t sockfd)
 {
-#ifdef TCP_NODELAY
-  struct SessionHandle *data= conn->data;
-  curl_socklen_t onoff = (curl_socklen_t) data->set.tcp_nodelay;
+#if defined(TCP_NODELAY)
+#if !defined(CURL_DISABLE_VERBOSE_STRINGS)
+  struct SessionHandle *data = conn->data;
+#endif
+  curl_socklen_t onoff = (curl_socklen_t) 1;
   int level = IPPROTO_TCP;
 
 #if 0
@@ -876,6 +877,10 @@ static void tcpnodelay(struct connectdata *conn,
   struct protoent *pe = getprotobyname("tcp");
   if(pe)
     level = pe->p_proto;
+#endif
+
+#if defined(CURL_DISABLE_VERBOSE_STRINGS)
+  (void) conn;
 #endif
 
   if(setsockopt(sockfd, level, TCP_NODELAY, (void *)&onoff,
@@ -913,7 +918,7 @@ static void nosigpipe(struct connectdata *conn,
 /* When you run a program that uses the Windows Sockets API, you may
    experience slow performance when you copy data to a TCP server.
 
-   http://support.microsoft.com/kb/823764
+   https://support.microsoft.com/kb/823764
 
    Work-around: Make the Socket Send Buffer Size Larger Than the Program Send
    Buffer Size
@@ -949,16 +954,21 @@ void Curl_sndbufset(curl_socket_t sockfd)
         detectOsState = DETECT_OS_VISTA_OR_LATER;
     }
 #else
-    ULONGLONG majorVersionMask;
+    ULONGLONG cm;
     OSVERSIONINFOEX osver;
 
     memset(&osver, 0, sizeof(osver));
     osver.dwOSVersionInfoSize = sizeof(osver);
     osver.dwMajorVersion = majorVersion;
-    majorVersionMask = VerSetConditionMask(0, VER_MAJORVERSION,
-                                           VER_GREATER_EQUAL);
 
-    if(VerifyVersionInfo(&osver, VER_MAJORVERSION, majorVersionMask))
+    cm = VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL);
+    cm = VerSetConditionMask(cm, VER_MINORVERSION, VER_GREATER_EQUAL);
+    cm = VerSetConditionMask(cm, VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
+    cm = VerSetConditionMask(cm, VER_SERVICEPACKMINOR, VER_GREATER_EQUAL);
+
+    if(VerifyVersionInfo(&osver, (VER_MAJORVERSION | VER_MINORVERSION |
+                                  VER_SERVICEPACKMAJOR | VER_SERVICEPACKMINOR),
+                         cm))
       detectOsState = DETECT_OS_VISTA_OR_LATER;
     else
       detectOsState = DETECT_OS_PREVISTA;
@@ -1028,7 +1038,7 @@ static CURLcode singleipconnect(struct connectdata *conn,
   is_tcp = (addr.family == AF_INET) && addr.socktype == SOCK_STREAM;
 #endif
   if(is_tcp && data->set.tcp_nodelay)
-    tcpnodelay(conn, sockfd);
+    Curl_tcpnodelay(conn, sockfd);
 
   nosigpipe(conn, sockfd);
 
@@ -1166,8 +1176,11 @@ CURLcode Curl_connecthost(struct connectdata *conn,  /* context */
     conn->tempaddr[0] = conn->tempaddr[0]->ai_next;
   }
 
-  if(conn->tempsock[0] == CURL_SOCKET_BAD)
+  if(conn->tempsock[0] == CURL_SOCKET_BAD) {
+    if(!result)
+      result = CURLE_COULDNT_CONNECT;
     return result;
+  }
 
   data->info.numconnects++; /* to track the number of connections made */
 
@@ -1214,8 +1227,8 @@ curl_socket_t Curl_getconnectinfo(struct SessionHandle *data,
     find.found = FALSE;
 
     Curl_conncache_foreach(data->multi_easy?
-                           data->multi_easy->conn_cache:
-                           data->multi->conn_cache, &find, conn_is_conn);
+                           &data->multi_easy->conn_cache:
+                           &data->multi->conn_cache, &find, conn_is_conn);
 
     if(!find.found) {
       data->state.lastconnect = NULL;
@@ -1235,10 +1248,10 @@ curl_socket_t Curl_getconnectinfo(struct SessionHandle *data,
     }
 /* Minix 3.1 doesn't support any flags on recv; just assume socket is OK */
 #ifdef MSG_PEEK
-    else {
+    else if(sockfd != CURL_SOCKET_BAD) {
       /* use the socket */
       char buf;
-      if(recv((RECV_TYPE_ARG1)c->sock[FIRSTSOCKET], (RECV_TYPE_ARG2)&buf,
+      if(recv((RECV_TYPE_ARG1)sockfd, (RECV_TYPE_ARG2)&buf,
               (RECV_TYPE_ARG3)1, (RECV_TYPE_ARG4)MSG_PEEK) == 0) {
         return CURL_SOCKET_BAD;   /* FIN received */
       }

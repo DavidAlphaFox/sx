@@ -5,11 +5,11 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2016, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
- * are also available at http://curl.haxx.se/docs/copyright.html.
+ * are also available at https://curl.haxx.se/docs/copyright.html.
  *
  * You may opt to use, copy, modify, merge, publish, distribute and/or sell
  * copies of the Software, and permit persons to whom the Software is
@@ -57,6 +57,14 @@ static char *formboundary(struct SessionHandle *data);
 #define FORM_FILE_SEPARATOR ','
 #define FORM_TYPE_SEPARATOR ';'
 
+#define HTTPPOST_PTRNAME CURL_HTTPPOST_PTRNAME
+#define HTTPPOST_FILENAME CURL_HTTPPOST_FILENAME
+#define HTTPPOST_PTRCONTENTS CURL_HTTPPOST_PTRCONTENTS
+#define HTTPPOST_READFILE CURL_HTTPPOST_READFILE
+#define HTTPPOST_PTRBUFFER CURL_HTTPPOST_PTRBUFFER
+#define HTTPPOST_CALLBACK CURL_HTTPPOST_CALLBACK
+#define HTTPPOST_BUFFER CURL_HTTPPOST_BUFFER
+
 /***************************************************************************
  *
  * AddHttpPost()
@@ -69,7 +77,7 @@ static char *formboundary(struct SessionHandle *data);
  ***************************************************************************/
 static struct curl_httppost *
 AddHttpPost(char *name, size_t namelength,
-            char *value, size_t contentslength,
+            char *value, curl_off_t contentslength,
             char *buffer, size_t bufferlength,
             char *contenttype,
             long flags,
@@ -85,14 +93,14 @@ AddHttpPost(char *name, size_t namelength,
     post->name = name;
     post->namelength = (long)(name?(namelength?namelength:strlen(name)):0);
     post->contents = value;
-    post->contentslength = (long)contentslength;
+    post->contentlen = contentslength;
     post->buffer = buffer;
     post->bufferlength = (long)bufferlength;
     post->contenttype = contenttype;
     post->contentheader = contentHeader;
     post->showfilename = showfilename;
     post->userp = userp,
-    post->flags = flags;
+    post->flags = flags | CURL_HTTPPOST_LARGE;
   }
   else
     return NULL;
@@ -372,11 +380,14 @@ CURLFORMcode FormAdd(struct curl_httppost **httppost,
       }
       break;
     case CURLFORM_CONTENTSLENGTH:
-      if(current_form->contentslength)
-        return_value = CURL_FORMADD_OPTION_TWICE;
-      else
-        current_form->contentslength =
-          array_state?(size_t)array_value:(size_t)va_arg(params, long);
+      current_form->contentslength =
+        array_state?(size_t)array_value:(size_t)va_arg(params, long);
+      break;
+
+    case CURLFORM_CONTENTLEN:
+      current_form->flags |= CURL_HTTPPOST_LARGE;
+      current_form->contentslength =
+        array_state?(curl_off_t)(size_t)array_value:va_arg(params, curl_off_t);
       break;
 
       /* Get contents from a given file name */
@@ -538,7 +549,7 @@ CURLFORMcode FormAdd(struct curl_httppost **httppost,
         /* this "cast increases required alignment of target type" but
            we consider it OK anyway */
         struct curl_slist* list = array_state?
-          (struct curl_slist*)array_value:
+          (struct curl_slist*)(void*)array_value:
           va_arg(params, struct curl_slist*);
 
         if(current_form->contentheader)
@@ -653,9 +664,12 @@ CURLFORMcode FormAdd(struct curl_httppost **httppost,
                             HTTPPOST_PTRCONTENTS | HTTPPOST_PTRBUFFER |
                             HTTPPOST_CALLBACK)) && form->value) {
           /* copy value (without strdup; possibly contains null characters) */
-          form->value = Curl_memdup(form->value, form->contentslength?
-                                    form->contentslength:
-                                    strlen(form->value)+1);
+          size_t clen  = (size_t) form->contentslength;
+          if(!clen)
+            clen = strlen(form->value)+1;
+
+          form->value = Curl_memdup(form->value, clen);
+
           if(!form->value) {
             return_value = CURL_FORMADD_MEMORY;
             break;
@@ -756,7 +770,7 @@ curl_off_t VmsRealFileSize(const char * name,
   int ret_stat;
   FILE * file;
 
-  file = fopen(name, "r");
+  file = fopen(name, "r"); /* VMS */
   if(file == NULL)
     return 0;
 
@@ -808,10 +822,16 @@ static curl_off_t VmsSpecialSize(const char * name,
 static CURLcode AddFormData(struct FormData **formp,
                             enum formtype type,
                             const void *line,
-                            size_t length,
+                            curl_off_t length,
                             curl_off_t *size)
 {
-  struct FormData *newform = malloc(sizeof(struct FormData));
+  struct FormData *newform;
+  char *alloc2 = NULL;
+  CURLcode result = CURLE_OK;
+  if(length < 0 || (size && *size < 0))
+    return CURLE_BAD_FUNCTION_ARGUMENT;
+
+  newform = malloc(sizeof(struct FormData));
   if(!newform)
     return CURLE_OUT_OF_MEMORY;
   newform->next = NULL;
@@ -820,15 +840,22 @@ static CURLcode AddFormData(struct FormData **formp,
     /* we make it easier for plain strings: */
     if(!length)
       length = strlen((char *)line);
-
-    newform->line = malloc(length+1);
-    if(!newform->line) {
-      free(newform);
-      return CURLE_OUT_OF_MEMORY;
+#if (SIZEOF_SIZE_T < CURL_SIZEOF_CURL_OFF_T)
+    else if(length >= (curl_off_t)(size_t)-1) {
+      result = CURLE_BAD_FUNCTION_ARGUMENT;
+      goto error;
     }
-    memcpy(newform->line, line, length);
-    newform->length = length;
-    newform->line[length]=0; /* zero terminate for easier debugging */
+#endif
+
+    newform->line = malloc((size_t)length+1);
+    if(!newform->line) {
+      result = CURLE_OUT_OF_MEMORY;
+      goto error;
+    }
+    alloc2 = newform->line;
+    memcpy(newform->line, line, (size_t)length);
+    newform->length = (size_t)length;
+    newform->line[(size_t)length]=0; /* zero terminate for easier debugging */
   }
   else
     /* For callbacks and files we don't have any actual data so we just keep a
@@ -856,12 +883,20 @@ static CURLcode AddFormData(struct FormData **formp,
         struct_stat file;
         if(!stat(newform->line, &file) && !S_ISDIR(file.st_mode))
           *size += filesize(newform->line, file);
-        else
-          return CURLE_BAD_FUNCTION_ARGUMENT;
+        else {
+          result = CURLE_BAD_FUNCTION_ARGUMENT;
+          goto error;
+        }
       }
     }
   }
   return CURLE_OK;
+  error:
+  if(newform)
+    free(newform);
+  if(alloc2)
+    free(alloc2);
+  return result;
 }
 
 /*
@@ -1298,15 +1333,16 @@ CURLcode Curl_getformdata(struct SessionHandle *data,
         result = AddFormData(&form, FORM_CONTENT, post->buffer,
                              post->bufferlength, &size);
       else if(post->flags & HTTPPOST_CALLBACK)
-        /* the contents should be read with the callback and the size
-           is set with the contentslength */
+        /* the contents should be read with the callback and the size is set
+           with the contentslength */
         result = AddFormData(&form, FORM_CALLBACK, post->userp,
-                             post->contentslength, &size);
+                             post->flags&CURL_HTTPPOST_LARGE?
+                             post->contentlen:post->contentslength, &size);
       else
         /* include the contents we got */
         result = AddFormData(&form, FORM_CONTENT, post->contents,
-                             post->contentslength, &size);
-
+                             post->flags&CURL_HTTPPOST_LARGE?
+                             post->contentlen:post->contentslength, &size);
       file = file->more;
     } while(file && !result); /* for each specified file for this field */
 
@@ -1385,7 +1421,7 @@ static FILE * vmsfopenread(const char *file, const char *mode) {
   case FAB$C_VAR:
   case FAB$C_VFC:
   case FAB$C_STMCR:
-    return fopen(file, "r");
+    return fopen(file, "r"); /* VMS */
     break;
   default:
     return fopen(file, "r", "rfm=stmlf", "ctx=stm");
