@@ -3024,9 +3024,7 @@ int sxc_read_pass_file(sxc_client_t *sx, const char *pass_file, char *pass, unsi
     }
 
     if(c <= 8) {
-        sxi_seterr(sx, SXE_EARG, "Password is too short");
-        memset(pass, 0, pass_len);
-        return 1;
+        sxi_notice(sx, "Password is too short");
     }
 
     pass[c] = '\0';
